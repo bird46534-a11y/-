@@ -6,7 +6,7 @@ from google.api_core import exceptions
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="天機啟示錄 | 2026 數位祭壇", layout="wide")
 
-# --- 2. CSS 視覺：現代簡約白底 ---
+# --- 2. CSS 視覺 ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap');
@@ -25,8 +25,7 @@ def cast_iching():
     bagua = {"111":"乾","000":"坤","100":"震","011":"巽","010":"坎","101":"離","001":"艮","110":"兌"}
     bin_str = "".join(["1" if s in [7, 9] else "0" for s in scores])
     up, down = bagua[bin_str[3:]], bagua[bin_str[:3]]
-    # 常見卦名
-    names = {"111111":"乾為天", "000000":"坤為地", "110100":"風山漸", "101101":"離為火", "010010":"坎為水", "100100":"震為雷"}
+    names = {"111111":"乾為天", "000000":"坤為地", "110100":"風山漸", "101101":"離為火", "010010":"坎為水"}
     full_name = names.get(bin_str, f"{up}{down}卦")
     chan_bin = "".join([("0" if s == 9 else "1" if s == 6 else "1" if s == 7 else "0") for s in scores])
     chan_name = names.get(chan_bin, f"{bagua[chan_bin[3:]]}{bagua[chan_bin[:3]]}卦")
@@ -35,20 +34,15 @@ def cast_iching():
 # --- 4. 主程式 ---
 def main():
     st.markdown('<h1 class="main-title">☯ 天機啟示錄</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center; color:#bdc3c7; margin-bottom:40px;">2026 DIGITAL ALTAR v4.9</p>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center; color:#bdc3c7; margin-bottom:40px;">2026 DIGITAL ALTAR v5.0</p>', unsafe_allow_html=True)
 
-    # 安全讀取 API Key
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        with st.sidebar:
-            st.info("請在 Streamlit Secrets 設定 GEMINI_API_KEY")
-            api_key = st.text_input("或在此輸入測試 Key", type="password")
+    api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("輸入 API Key", type="password")
 
-    question = st.text_input("🔮 欲請教天機之事：", placeholder="請輸入疑惑，例如：下週面試結果？")
+    question = st.text_input("🔮 欲請教天機之事：", placeholder="請輸入疑惑...")
     
     if st.button("啟動占卜儀式"):
         if not api_key:
-            st.warning("⚠️ 系統未偵測到金鑰，無法運作。")
+            st.warning("⚠️ 系統未偵測到金鑰。")
             return
 
         scores, gua_name, chan_name = cast_iching()
@@ -70,34 +64,46 @@ def main():
         with col_r:
             st.markdown('<div class="glass-card"><h3 style="color:#2d3436; margin-top:0;">📜 大師天解</h3><hr style="border:0.5px solid #f9f9f9;">', unsafe_allow_html=True)
             
-            # --- 修正後的模型清單：只放你清單中有的 ---
-            # 優先使用 2.0 穩定版，備選 3.0 預覽版
-            available_models = ['gemini-2.0-flash', 'gemini-3-flash-preview', 'gemini-pro-latest']
+            # --- 關鍵修復：放寬安全設定 ---
+            safety_settings = [
+                {"category": "HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
             
+            available_models = ['gemini-2.0-flash', 'gemini-3-flash-preview']
             success = False
+            
             for m_name in available_models:
                 try:
-                    model = genai.GenerativeModel(m_name)
+                    model = genai.GenerativeModel(m_name, safety_settings=safety_settings)
                     prompt = f"你是易經占卜大師。問題：{question}。卦象：{gua_name}變{chan_name}。請簡短精闢地以繁體中文解析局勢與建議。"
                     
-                    # 流式輸出
                     response = model.generate_content(prompt, stream=True, request_options={"timeout": 60})
                     
                     placeholder = st.empty()
                     full_text = ""
-                    for chunk in response:
-                        if chunk.text:
-                            full_text += chunk.text
-                            placeholder.markdown(f'<div style="color:#2d3436; line-height:1.8; font-size:17px;">{full_text}▌</div>', unsafe_allow_html=True)
-                    placeholder.markdown(f'<div style="color:#2d3436; line-height:1.8; font-size:17px;">{full_text}</div>', unsafe_allow_html=True)
                     
-                    success = True
-                    break 
+                    # 逐字讀取並檢查內容
+                    for chunk in response:
+                        try:
+                            if chunk.text:
+                                full_text += chunk.text
+                                placeholder.markdown(f'<div style="color:#2d3436; line-height:1.8; font-size:17px;">{full_text}▌</div>', unsafe_allow_html=True)
+                        except (ValueError, exceptions.InternalServerError):
+                            # 如果 chunk 沒內容或被過濾
+                            continue
+                    
+                    if full_text:
+                        placeholder.markdown(f'<div style="color:#2d3436; line-height:1.8; font-size:17px;">{full_text}</div>', unsafe_allow_html=True)
+                        success = True
+                        break 
                 except Exception:
-                    continue # 如果該模型失敗，自動嘗試下一個
+                    continue 
             
             if not success:
-                st.error("🏮 目前天機感應繁忙（API 配額已滿），請等待 60 秒後再試。")
+                st.info("🏮 天機隱晦：AI 暫時無法解讀此問題（或內容被系統過濾），請換個問法試試看。")
             
             st.markdown('</div>', unsafe_allow_html=True)
 
